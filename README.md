@@ -3,3 +3,4 @@
 [![NuGet release](https://img.shields.io/nuget/v/Nibble.Umbraco.UIOMatic.Addons.MCFly.svg)](https://www.nuget.org/packages/Nibble.Umbraco.UIOMatic.Addons.MCFly)
 
 Addon for [UI-O-Matic](https://github.com/TimGeyssens/UIOMatic) that allows you to create the UI-O-Matic types from a UI and more...
+ ...but better :) 
