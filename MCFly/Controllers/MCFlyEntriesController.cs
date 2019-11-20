@@ -46,13 +46,14 @@ namespace MCFly
         //[OutputCache(Duration =3600, VaryByParam = "alias")]
         public ActionResult RenderForm(string alias, string view = "MCFly/MCFlyForm")
         {
-           
-           return PartialView(view, UIOMatic.Helper.GetUIOMaticTypeByAlias(alias));
+
+            return PartialView(view, UIOMatic.Helper.GetUIOMaticTypeByAlias(alias));
 
         }
-        [HttpPost, ValidateInput(false)]
-        [ValidateRecaptcha]
+
+        [HttpPost]
         [ValidateAntiForgeryToken]
+        //[ValidateGoogleCaptcha]
         public ActionResult HandleAjaxForm(FormCollection frm)
         {
             var typeName = frm["FullName"];
@@ -71,26 +72,25 @@ namespace MCFly
                 {
                     var fld = form.Fields.FirstOrDefault(x => x.Alias == prop.Name);
 
-
                     var val = fld.FieldType.Process(form, fld, !frm.AllKeys.Contains(prop.Name) ? null : frm[prop.Name], ControllerContext);
+
+                    if (fld.FieldType.FrontEndRenderView == "CheckBox" && (bool)val == false)
+                        ModelState.AddModelError(string.Empty, $"The field {0} is required");
 
                     if (val != null && val.ToString() != string.Empty)
                     {
                         prop.SetValue(instance, val);
                         dict.Add(prop.Name, val);
                     }
-
                 }
                 if (prop.Name == "Member")
                 {
-                    
                     var memberShipHelper = new MembershipHelper(Umbraco.UmbracoContext);
                     var member = Services.MemberService.GetById(memberShipHelper.GetCurrentMemberId());
                     if (memberShipHelper.IsLoggedIn())
                     {
                         prop.SetValue(instance, member.Name);
                         dict.Add("UmbracoMember", member.Name);
-
                     }
                     else
                     {
@@ -105,36 +105,23 @@ namespace MCFly
                 }
                 if (prop.Name == "UmbracoPage")
                 {
-                   
-                   
                     prop.SetValue(instance, frm["Umbraco.AssignedContentItem.Id"]);
                     dict.Add("UmbracoPage", frm["Umbraco.AssignedContentItem.Id"]);
-
-
-                    
-
-
                 }
             }
 
-            //Server Side Validation
-            //var context = new ValidationContext(instance, null, null);
-            //var results = new List<ValidationResult>();
+            // Server Side Validation
+            var context = new ValidationContext(instance, null, null);
+            var results = new List<ValidationResult>();
 
-            //Validator.TryValidateObject(instance, context, results, true);
+            Validator.TryValidateObject(instance, context, results, true);
 
-            //if (results.Any())
-            //{
-            //    foreach (var error in results)
-            //    {
+            if (results.Any())
+                foreach (var error in results)
+                    ModelState.AddModelError(error.MemberNames.FirstOrDefault(), error.ErrorMessage);
 
-            //        ModelState.AddModelError(error.MemberNames.FirstOrDefault(), error.ErrorMessage);
-            //    }
-
-            //}
-
-            //if (!ModelState.IsValid)
-            //    return CurrentUmbracoPage();
+            if (!ModelState.IsValid)
+                return Json(new { message = "Failure" });
 
             ////workaround for nullable string props
             foreach (PropertyInfo prop in type.GetProperties())
@@ -164,16 +151,28 @@ namespace MCFly
 
                 var mm = new MailMessage
                 {
-                    Body = EmailRenderer.Render(email.Template, instance,form,email, Umbraco.TypedContent(frm["Umbraco.AssignedContentItem.Id"])),
+                    Body = EmailRenderer.Render(email.Template, instance, form, email, Umbraco.TypedContent(frm["Umbraco.AssignedContentItem.Id"])),
                     IsBodyHtml = true,
                     Subject = email.Subject ?? "New " + form.Name + " entry",
                     From = new MailAddress(email.From)
-
                 };
 
-                mm.To.Add(email.ToProperty != string.Empty ? new MailAddress(type.GetProperty(email.ToProperty).GetValue(instance).ToString()) : new MailAddress(email.To));
+                mm.Headers.Add("X-Application", "Website");
+                mm.Headers.Add("MIME-Version", "1.0");
+                mm.Headers.Add("Content-Type", "text/html;charset=utf-8");
+                mm.Headers.Add("Content-Transfer-Encoding", "base64");
+                mm.SubjectEncoding = Encoding.UTF8;
+                mm.HeadersEncoding = Encoding.UTF8;
+                mm.BodyEncoding = Encoding.UTF8;
 
-                new SmtpClient().Send(mm);
+                mm.To.Add(email.ToProperty != string.Empty
+                    ? new MailAddress(type.GetProperty(email.ToProperty).GetValue(instance).ToString(), type.GetProperty(email.ToProperty).GetValue(instance).ToString(), Encoding.UTF8)
+                    : new MailAddress(email.To, email.To, Encoding.UTF8));
+
+                using (SmtpClient client = new SmtpClient())
+                {
+                    client.Send(mm);
+                }
             }
 
             //Do more stuff
@@ -196,10 +195,7 @@ namespace MCFly
                 }
             }
 
-            return Json(new
-            {
-                Success = true,
-            });
+            return Json(new { Success = true });
         }
 
         [HttpPost, ValidateInput(false)]
@@ -223,15 +219,15 @@ namespace MCFly
                 {
                     var fld = form.Fields.FirstOrDefault(x => x.Alias == prop.Name);
 
-                   
+
                     var val = fld.FieldType.Process(form, fld, !frm.AllKeys.Contains(prop.Name) ? null : frm[prop.Name], ControllerContext);
 
-                    if(val != null && val.ToString() != string.Empty)
+                    if (val != null && val.ToString() != string.Empty)
                     {
                         prop.SetValue(instance, val);
                         dict.Add(prop.Name, val);
                     }
-                    
+
                 }
                 if (prop.Name == "Member")
                 {
@@ -257,15 +253,9 @@ namespace MCFly
                 }
                 if (prop.Name == "UmbracoPage")
                 {
-                    //if (CurrentPage != null)
-                    //{
                     prop.SetValue(instance, CurrentPage.Id.ToString());
                     dict.Add("UmbracoPage", CurrentPage.Id.ToString());
-                    //}
-                //else
-                //{ //use form collection value
-                //}
-            }
+                }
             }
 
             //Server Side Validation
@@ -306,18 +296,18 @@ namespace MCFly
             }
 
             //Store Record to DB
-            if(form.StoresData)
+            if (form.StoresData)
                 UIOMaticObjectService.Instance.Create(type, dict);
 
             //Send Emails
             foreach (var email in form.Emails)
             {
-               
+
                 var mm = new MailMessage
                 {
-                    Body = EmailRenderer.Render(email.Template, instance,form,email, CurrentPage),
+                    Body = EmailRenderer.Render(email.Template, instance, form, email, CurrentPage),
                     IsBodyHtml = true,
-                    Subject = email.Subject??"New " + form.Name + " entry",
+                    Subject = email.Subject ?? "New " + form.Name + " entry",
                     From = new MailAddress(email.From)
 
                 };
@@ -340,7 +330,7 @@ namespace MCFly
                 {
                     var response = client.UploadString(form.WebHookUrl, "POST", JsonConvert.SerializeObject(dict));
                 }
-               
+
                 catch (Exception ex)
                 {
                     //log
