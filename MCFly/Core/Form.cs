@@ -49,10 +49,6 @@ namespace MCFly.Core
         [DataMember(Name = "messageOnSubmit")]
         public string MessageOnSubmit { get; set; }
 
-        [Column("MessageOnSubmitSecondLine")]
-        [DataMember(Name = "messageOnSubmitSecondLine")]
-        public string MessageOnSubmitSecondLine { get; set; }
-
         [Column("GoToPageOnSubmit")]
         [DataMember(Name = "goToPageOnSubmit")]
         [NullSetting(NullSetting =NullSettings.Null)]
